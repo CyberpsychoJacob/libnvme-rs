@@ -23,6 +23,7 @@ use crate::{Controller, Result};
 /// Created by [`Controller::sanitize`]. Defaults to `BlockErase` with no
 /// AUSE, no overwrite passes, no invert, allow deallocation. Tune via the
 /// chainable setters then call [`Sanitize::execute`].
+#[must_use = "this builder does nothing until `.execute()` is called"]
 pub struct Sanitize<'a, 'r> {
     ctrl: &'a Controller<'r>,
     action: SanitizeAction,
@@ -103,18 +104,26 @@ impl<'a, 'r> Sanitize<'a, 'r> {
         self
     }
 
-    /// Issue the Sanitize NVM command. Returns once the controller
-    /// acknowledges the start; the actual sanitize runs asynchronously
-    /// and progress is tracked via the Sanitize Status log page.
+    /// Issue the Sanitize NVM command. Returns the controller's completion
+    /// result dword (CDW0) once the controller acknowledges the start; the
+    /// actual sanitize runs asynchronously and progress is tracked via the
+    /// Sanitize Status log page.
+    ///
+    /// Returns `Result<u32>` for consistency with the other command builders
+    /// in this crate (`io`, `reservations`, `zns`). The dword is rarely
+    /// load-bearing for Sanitize, but surfacing it costs nothing and avoids
+    /// the lone `Result<()>` builder outlier.
     // Field reassignment after Default::default() is deliberate — the
     // `emvs` field is cfg-gated and a struct literal can't conditionally
     // omit a field, so we use Default + per-field assignment instead.
     #[allow(clippy::field_reassign_with_default)]
-    pub fn execute(self) -> Result<()> {
+    pub fn execute(self) -> Result<u32> {
         let fd = self.ctrl.open_fd()?;
+        let mut result: u32 = 0;
         let mut args = nvme_sanitize_nvm_args::default();
         args.args_size = std::mem::size_of::<nvme_sanitize_nvm_args>() as i32;
         args.fd = fd;
+        args.result = &mut result;
         args.timeout = self.timeout_ms;
         args.sanact = self.action.as_raw();
         args.ovrpat = self.ovrpat;
@@ -127,9 +136,10 @@ impl<'a, 'r> Sanitize<'a, 'r> {
             args.emvs = self.emvs;
         }
         // SAFETY: args is fully-initialized on the stack; fd is a valid file
-        // descriptor for this controller; no pointer fields are used.
+        // descriptor for this controller; result points to a live u32.
         let ret = unsafe { nvme_sanitize_nvm(&mut args) };
-        check_ret(ret)
+        check_ret(ret)?;
+        Ok(result)
     }
 }
 
@@ -142,22 +152,34 @@ impl<'a, 'r> Sanitize<'a, 'r> {
 /// `uuidx` is the UUID index for vendor-specific lockdown scopes.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct LockdownArgs {
+    /// Scope (SCP) — lockdown scope class (commands / features / log pages).
     pub scope: u8,
+    /// Prohibit (PRHBT) — `1` prohibits, `0` allows the scoped capability.
     pub prohibit: u8,
+    /// Interface (IFC) — interface mask the lockdown applies to.
     pub interface: u8,
+    /// Opcode/Feature Identifier (OFI) — the opcode or feature id in scope.
     pub opcode_or_fid: u8,
+    /// UUID Index (UUIDX) — UUID index for vendor-specific lockdown scopes.
     pub uuid_index: u8,
+    /// Per-command timeout in milliseconds. `0` uses libnvme's default.
     pub timeout_ms: u32,
 }
 
 /// Parameters for Get LBA Status (NVMe 1.4+).
 #[derive(Debug, Default, Clone, Copy)]
 pub struct GetLbaStatusArgs {
+    /// Namespace Identifier (NSID) to query.
     pub nsid: u32,
+    /// Starting LBA (SLBA) of the range to report on.
     pub slba: u64,
+    /// Maximum Number of Dwords (MNDW) the response buffer can hold.
     pub mndw: u32,
+    /// Action Type (ATYPE) — selects which LBA status is reported.
     pub atype: u32,
+    /// Range Length (RL) in logical blocks.
     pub rl: u16,
+    /// Per-command timeout in milliseconds. `0` uses libnvme's default.
     pub timeout_ms: u32,
 }
 
@@ -172,20 +194,35 @@ pub struct GetLbaStatusArgs {
 /// the slice lengths.
 #[derive(Debug, Default)]
 pub struct PassthruArgs<'a> {
+    /// Command opcode (OPC).
     pub opcode: u8,
+    /// Command flags (FLAGS) — the command-dword-0 flags field.
     pub flags: u8,
+    /// Reserved field (RSVD).
     pub rsvd: u16,
+    /// Namespace Identifier (NSID).
     pub nsid: u32,
+    /// Command Dword 2 (CDW2).
     pub cdw2: u32,
+    /// Command Dword 3 (CDW3).
     pub cdw3: u32,
+    /// Command Dword 10 (CDW10).
     pub cdw10: u32,
+    /// Command Dword 11 (CDW11).
     pub cdw11: u32,
+    /// Command Dword 12 (CDW12).
     pub cdw12: u32,
+    /// Command Dword 13 (CDW13).
     pub cdw13: u32,
+    /// Command Dword 14 (CDW14).
     pub cdw14: u32,
+    /// Command Dword 15 (CDW15).
     pub cdw15: u32,
+    /// Data buffer; its length supplies the data transfer length.
     pub data: Option<&'a mut [u8]>,
+    /// Metadata buffer; its length supplies the metadata transfer length.
     pub metadata: Option<&'a mut [u8]>,
+    /// Per-command timeout in milliseconds. `0` uses libnvme's default.
     pub timeout_ms: u32,
 }
 

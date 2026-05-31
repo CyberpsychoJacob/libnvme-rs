@@ -300,7 +300,7 @@ impl<'r> Controller<'r> {
         let entry_size = std::mem::size_of::<nvme_error_log_page>();
         let total_len = entry_size
             .checked_mul(max_entries as usize)
-            .ok_or(Error::NotAvailable)?;
+            .ok_or_else(|| Error::invalid_argument("max_entries * entry_size overflows usize"))?;
 
         let mut entries: Vec<nvme_error_log_page> =
             vec![nvme_error_log_page::default(); max_entries as usize];
@@ -496,7 +496,7 @@ impl<'r> Controller<'r> {
     ) -> Result<()> {
         if controller_ids.len() > 2047 {
             // nvme_ctrl_list.identifier is fixed at 2047 entries per spec.
-            return Err(Error::InvalidArgument(
+            return Err(Error::invalid_argument(
                 "controller_ids exceeds the NVMe spec max of 2047 entries",
             ));
         }
@@ -661,6 +661,7 @@ impl std::fmt::Debug for Controller<'_> {
 }
 
 /// Iterator over [`Controller`] entries, returned by [`crate::Subsystem::controllers`].
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Controllers<'r> {
     subsystem: nvme_subsystem_t,
     cursor: nvme_ctrl_t,

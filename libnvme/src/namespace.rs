@@ -230,7 +230,7 @@ impl<'r> Namespace<'r> {
     pub fn read_to_vec(&self, slba: u64, nlb: u32) -> Result<Vec<u8>> {
         let len = (nlb as usize)
             .checked_mul(self.lba_size() as usize)
-            .ok_or_else(|| crate::Error::Os(std::io::Error::other("buffer size overflow")))?;
+            .ok_or_else(|| crate::Error::invalid_argument("nlb * lba_size overflows usize"))?;
         let mut buf = vec![0u8; len];
         self.read(slba, nlb, &mut buf).execute()?;
         Ok(buf)
@@ -302,7 +302,7 @@ impl<'r> Namespace<'r> {
     }
 
     /// Build a Reservation Report command. Supply a buffer via
-    /// [`ReservationReport::into`](crate::ReservationReport::into) (or use
+    /// [`ReservationReport::buffer`](crate::ReservationReport::buffer) (or use
     /// `execute_to_vec`).
     pub fn reservation_report(&self) -> crate::reservations::ReservationReport<'_, 'r> {
         crate::reservations::ReservationReport::new(self)
@@ -340,7 +340,7 @@ impl<'r> Namespace<'r> {
     }
 
     /// Build a Zone Management Receive command. Supply a buffer via
-    /// [`ZnsMgmtRecv::into`](crate::ZnsMgmtRecv::into).
+    /// [`ZnsMgmtRecv::buffer`](crate::ZnsMgmtRecv::buffer).
     pub fn zns_mgmt_recv(&self, slba: u64) -> crate::zns::ZnsMgmtRecv<'_, 'r> {
         crate::zns::ZnsMgmtRecv::new(self, slba)
     }
@@ -362,6 +362,7 @@ impl<'r> Namespace<'r> {
 /// conservative" values (LBA format 0, no secure erase, PI disabled),
 /// so calling [`Format::execute`] without further chaining performs a
 /// metadata-only format.
+#[must_use = "this builder does nothing until `.execute()` is called"]
 pub struct Format<'a, 'r> {
     ns: &'a Namespace<'r>,
     lba_format: u8,
@@ -477,6 +478,7 @@ impl std::fmt::Debug for Namespace<'_> {
 }
 
 /// Iterator over [`Namespace`] entries reachable through a [`crate::Controller`].
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Namespaces<'r> {
     ctrl: nvme_ctrl_t,
     cursor: nvme_ns_t,

@@ -146,9 +146,15 @@ pub fn hostid_from_file() -> Result<String> {
 /// The free runs unconditionally on the non-null path — including the
 /// UTF-8 error case — so libnvme's allocation is never leaked, even on
 /// bad input.
+///
+/// A NULL return is treated as a failed *operation* and mapped to
+/// [`Error::Os`] (capturing `errno` — e.g. `ENOENT` for a missing
+/// `/etc/nvme/hostnqn`, `ENOMEM` on allocation failure), consistent with
+/// the other operation entry points in this module. [`Error::NotAvailable`]
+/// is reserved for handle accessors where a property is genuinely unset.
 fn take_owned_cstr(ptr: *mut std::os::raw::c_char) -> Result<String> {
     if ptr.is_null() {
-        return Err(Error::NotAvailable);
+        return Err(Error::Os(io::Error::last_os_error()));
     }
     // Copy bytes out before freeing so the free is unconditional regardless
     // of whether the bytes form valid UTF-8.

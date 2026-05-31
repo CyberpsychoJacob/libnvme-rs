@@ -59,7 +59,11 @@ confidence-threshold = 0.93
 # don't want to depend on.
 # ---------------------------------------------------------------------
 [bans]
-multiple-versions = "warn"  # downgrade to allow until we vendor-pin
+# The workspace dep tree has no duplicate versions (verified with
+# `cargo tree --duplicates --target all`), so we hold the line at `deny`.
+# If a future dependency bump introduces a duplicate, CI fails here and we
+# either dedupe or add a justified `skip` entry below.
+multiple-versions = "deny"
 wildcards = "deny"
 deny = []
 # Skip duplicate-warnings for crates with known multi-version trees

@@ -16,11 +16,22 @@ use std::ffi::c_void;
 use libnvme_sys::{
     nvme_resv_acquire, nvme_resv_acquire_args, nvme_resv_register, nvme_resv_register_args,
     nvme_resv_release, nvme_resv_release_args, nvme_resv_report, nvme_resv_report_args,
-    nvme_resv_status,
 };
 
 use crate::error::{check_ret, Error, Result};
 use crate::namespace::Namespace;
+
+/// The raw Reservation Status data structure (`nvme_resv_status`),
+/// re-exported from `libnvme-sys` so callers of
+/// [`ReservationReport::execute`] / [`ReservationReport::execute_to_vec`]
+/// can name and cast to it without taking a direct `libnvme-sys`
+/// dependency.
+///
+/// This is a `#[repr(C)]` struct with a variable-length trailing array of
+/// per-controller entries; a higher-level decoded view may be added in a
+/// future (additive) release. The `pub use` also brings it into scope for
+/// this module's internal use (the buffer-size checks in `execute`).
+pub use libnvme_sys::nvme_resv_status;
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -29,6 +40,7 @@ use crate::namespace::Namespace;
 /// Reservation type (rtype) — sets the access semantics for the reservation
 /// holder vs. registered hosts vs. non-registered hosts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum ReservationType {
     /// Write Exclusive — only the holder can write; all hosts can read.
@@ -53,6 +65,7 @@ impl ReservationType {
 
 /// Reservation Acquire action (racqa).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum ReservationAcquireAction {
     /// Acquire the reservation.
@@ -72,6 +85,7 @@ impl ReservationAcquireAction {
 
 /// Reservation Register action (rrega).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum ReservationRegisterAction {
     /// Register a new reservation key.
@@ -91,6 +105,7 @@ impl ReservationRegisterAction {
 
 /// Reservation Release action (rrela).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum ReservationReleaseAction {
     /// Release the reservation.
@@ -108,6 +123,7 @@ impl ReservationReleaseAction {
 
 /// Change-Persist-Through-Power-Loss (cptpl) for Reservation Register.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum PtplChange {
     /// No change to PTPL state.
@@ -130,6 +146,7 @@ impl PtplChange {
 // ---------------------------------------------------------------------------
 
 /// Builder returned by [`Namespace::reservation_acquire`].
+#[must_use = "this builder does nothing until `.execute()` is called"]
 pub struct ReservationAcquire<'a, 'r> {
     ns: &'a Namespace<'r>,
     crkey: u64,
@@ -219,6 +236,7 @@ impl<'a, 'r> ReservationAcquire<'a, 'r> {
 // ---------------------------------------------------------------------------
 
 /// Builder returned by [`Namespace::reservation_register`].
+#[must_use = "this builder does nothing until `.execute()` is called"]
 pub struct ReservationRegister<'a, 'r> {
     ns: &'a Namespace<'r>,
     crkey: u64,
@@ -273,11 +291,13 @@ impl<'a, 'r> ReservationRegister<'a, 'r> {
         self
     }
 
+    /// Per-command timeout in milliseconds. `0` uses libnvme's default.
     pub fn timeout_ms(mut self, ms: u32) -> Self {
         self.timeout_ms = ms;
         self
     }
 
+    /// Issue the Reservation Register command.
     pub fn execute(self) -> Result<u32> {
         let fd = ns_fd(self.ns)?;
         let mut result: u32 = 0;
@@ -305,6 +325,7 @@ impl<'a, 'r> ReservationRegister<'a, 'r> {
 // ---------------------------------------------------------------------------
 
 /// Builder returned by [`Namespace::reservation_release`].
+#[must_use = "this builder does nothing until `.execute()` is called"]
 pub struct ReservationRelease<'a, 'r> {
     ns: &'a Namespace<'r>,
     crkey: u64,
@@ -350,11 +371,13 @@ impl<'a, 'r> ReservationRelease<'a, 'r> {
         self
     }
 
+    /// Per-command timeout in milliseconds. `0` uses libnvme's default.
     pub fn timeout_ms(mut self, ms: u32) -> Self {
         self.timeout_ms = ms;
         self
     }
 
+    /// Issue the Reservation Release command.
     pub fn execute(self) -> Result<u32> {
         let fd = ns_fd(self.ns)?;
         let mut result: u32 = 0;
@@ -387,6 +410,7 @@ impl<'a, 'r> ReservationRelease<'a, 'r> {
 /// controller entries; callers cast to the bindgen type or use the
 /// convenience [`ReservationReport::execute_to_vec`] for a default-sized
 /// allocation.
+#[must_use = "this builder does nothing until `.execute()` is called"]
 pub struct ReservationReport<'a, 'r> {
     ns: &'a Namespace<'r>,
     buf: Option<&'a mut [u8]>,
@@ -406,8 +430,9 @@ impl<'a, 'r> ReservationReport<'a, 'r> {
 
     /// Read the report into this buffer. Must be at least
     /// `size_of::<nvme_resv_status>()` bytes; bigger buffers will read
-    /// the variable controller-entry tail too.
-    pub fn into(mut self, buf: &'a mut [u8]) -> Self {
+    /// the variable controller-entry tail too. Required before
+    /// [`Self::execute`].
+    pub fn buffer(mut self, buf: &'a mut [u8]) -> Self {
         self.buf = Some(buf);
         self
     }
@@ -419,6 +444,7 @@ impl<'a, 'r> ReservationReport<'a, 'r> {
         self
     }
 
+    /// Per-command timeout in milliseconds. `0` uses libnvme's default.
     pub fn timeout_ms(mut self, ms: u32) -> Self {
         self.timeout_ms = ms;
         self
@@ -426,11 +452,11 @@ impl<'a, 'r> ReservationReport<'a, 'r> {
 
     /// Execute against the user-provided buffer.
     pub fn execute(self) -> Result<u32> {
-        let buf = self.buf.ok_or(Error::InvalidArgument(
-            "ReservationReport requires a buffer via .into()",
+        let buf = self.buf.ok_or(Error::invalid_argument(
+            "ReservationReport requires a buffer via .buffer()",
         ))?;
         if buf.len() < std::mem::size_of::<nvme_resv_status>() {
-            return Err(Error::InvalidArgument(
+            return Err(Error::invalid_argument(
                 "ReservationReport buffer smaller than nvme_resv_status header",
             ));
         }
@@ -453,8 +479,9 @@ impl<'a, 'r> ReservationReport<'a, 'r> {
         Ok(result)
     }
 
-    /// Convenience: allocate a 4 KiB buffer and execute. Returns the
-    /// raw bytes; callers cast to `nvme_resv_status` themselves.
+    /// Convenience: allocate a 4 KiB buffer and execute. Returns the raw
+    /// bytes; reinterpret the leading bytes as [`nvme_resv_status`]
+    /// (re-exported from this crate) to decode the report.
     pub fn execute_to_vec(self) -> Result<Vec<u8>> {
         let eds = self.eds;
         let timeout_ms = self.timeout_ms;

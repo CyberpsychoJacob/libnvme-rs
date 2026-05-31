@@ -50,7 +50,7 @@ fn trim_trailing_padding(s: &[u8]) -> &[u8] {
 /// Used at every call site that hands a host-provided string into
 /// libnvme — fabrics setup, auth keys, lookup-host, etc.
 pub(crate) fn str_to_cstring(s: &str, err_msg: &'static str) -> Result<std::ffi::CString> {
-    std::ffi::CString::new(s).map_err(|_| Error::InvalidArgument(err_msg))
+    std::ffi::CString::new(s).map_err(|_| Error::invalid_argument(err_msg))
 }
 
 #[cfg(test)]

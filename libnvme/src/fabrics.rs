@@ -70,6 +70,7 @@ impl Transport<'_> {
 /// (`transport`, `subsysnqn`) are taken at construction; everything else is
 /// chained on as optional setters and defaults to libnvme's
 /// `nvmf_default_config` values.
+#[must_use = "this builder does nothing until `.execute()` is called"]
 pub struct Connect<'a, 'r> {
     host: &'a Host<'r>,
     transport: String,
@@ -503,8 +504,5 @@ fn cstr_ptr_or_null(opt: &Option<CString>) -> *const std::os::raw::c_char {
 }
 
 fn invalid_input(_e: std::ffi::NulError) -> Error {
-    Error::Os(std::io::Error::new(
-        std::io::ErrorKind::InvalidInput,
-        "interior NUL byte in fabrics parameter",
-    ))
+    Error::invalid_argument("interior NUL byte in fabrics parameter")
 }

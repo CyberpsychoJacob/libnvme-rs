@@ -106,6 +106,7 @@ impl DirectiveRecvOp {
 // ---------------------------------------------------------------------------
 
 /// Builder returned by [`Namespace::directive_send`].
+#[must_use = "this builder does nothing until `.execute()` is called"]
 pub struct DirectiveSend<'a, 'r> {
     ns: &'a Namespace<'r>,
     dtype: DirectiveType,
@@ -147,11 +148,14 @@ impl<'a, 'r> DirectiveSend<'a, 'r> {
         self
     }
 
+    /// Per-command timeout in milliseconds. `0` uses libnvme's default.
     pub fn timeout_ms(mut self, ms: u32) -> Self {
         self.timeout_ms = ms;
         self
     }
 
+    /// Issue the Directive Send command. Returns the controller's CQE result
+    /// dword.
     pub fn execute(self) -> Result<u32> {
         let fd = ns_fd(self.ns)?;
         let mut result: u32 = 0;
@@ -188,6 +192,7 @@ impl<'a, 'r> DirectiveSend<'a, 'r> {
 // ---------------------------------------------------------------------------
 
 /// Builder returned by [`Namespace::directive_recv`].
+#[must_use = "this builder does nothing until `.execute()` is called"]
 pub struct DirectiveRecv<'a, 'r> {
     ns: &'a Namespace<'r>,
     dtype: DirectiveType,
@@ -212,26 +217,31 @@ impl<'a, 'r> DirectiveRecv<'a, 'r> {
     }
 
     /// Buffer to receive the directive's response payload.
-    pub fn into(mut self, data: &'a mut [u8]) -> Self {
+    pub fn buffer(mut self, data: &'a mut [u8]) -> Self {
         self.data = Some(data);
         self
     }
 
+    /// Directive-Specific field (DSPEC, 16-bit).
     pub fn dspec(mut self, dspec: u16) -> Self {
         self.dspec = dspec;
         self
     }
 
+    /// Directive-specific CDW12 (operation-dependent).
     pub fn cdw12(mut self, cdw12: u32) -> Self {
         self.cdw12 = cdw12;
         self
     }
 
+    /// Per-command timeout in milliseconds. `0` uses libnvme's default.
     pub fn timeout_ms(mut self, ms: u32) -> Self {
         self.timeout_ms = ms;
         self
     }
 
+    /// Issue the Directive Receive command. Returns the controller's CQE
+    /// result dword.
     pub fn execute(mut self) -> Result<u32> {
         let fd = ns_fd(self.ns)?;
         let mut result: u32 = 0;

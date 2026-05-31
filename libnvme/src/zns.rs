@@ -31,6 +31,7 @@ use crate::namespace::Namespace;
 
 /// Zone Send Action (zsa).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum ZoneSendAction {
     /// Close an open zone.
@@ -57,6 +58,7 @@ impl ZoneSendAction {
 
 /// Zone Receive Action (zra).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum ZoneRecvAction {
     /// Report Zones — standard report.
@@ -74,6 +76,7 @@ impl ZoneRecvAction {
 
 /// Report-zones filter (ZRASF, zone-receive action-specific field).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 #[repr(u16)]
 pub enum ZoneReportFilter {
     /// All zones, regardless of state.
@@ -106,6 +109,7 @@ impl ZoneReportFilter {
 // ---------------------------------------------------------------------------
 
 /// Builder returned by [`Namespace::zns_mgmt_send`].
+#[must_use = "this builder does nothing until `.execute()` is called"]
 pub struct ZnsMgmtSend<'a, 'r> {
     ns: &'a Namespace<'r>,
     slba: u64,
@@ -147,11 +151,14 @@ impl<'a, 'r> ZnsMgmtSend<'a, 'r> {
         self
     }
 
+    /// Per-command timeout in milliseconds. `0` uses libnvme's default.
     pub fn timeout_ms(mut self, ms: u32) -> Self {
         self.timeout_ms = ms;
         self
     }
 
+    /// Issue the Zone Management Send command. Returns the controller's CQE
+    /// result dword.
     pub fn execute(self) -> Result<u32> {
         let fd = ns_fd(self.ns)?;
         let mut result: u32 = 0;
@@ -185,6 +192,7 @@ impl<'a, 'r> ZnsMgmtSend<'a, 'r> {
 // ---------------------------------------------------------------------------
 
 /// Builder returned by [`Namespace::zns_mgmt_recv`].
+#[must_use = "this builder does nothing until `.execute()` is called"]
 pub struct ZnsMgmtRecv<'a, 'r> {
     ns: &'a Namespace<'r>,
     slba: u64,
@@ -228,22 +236,24 @@ impl<'a, 'r> ZnsMgmtRecv<'a, 'r> {
     }
 
     /// Read the report into this buffer (must be at least 8 bytes for
-    /// the header).
-    pub fn into(mut self, buf: &'a mut [u8]) -> Self {
+    /// the header). Required before [`Self::execute`].
+    pub fn buffer(mut self, buf: &'a mut [u8]) -> Self {
         self.data = Some(buf);
         self
     }
 
+    /// Per-command timeout in milliseconds. `0` uses libnvme's default.
     pub fn timeout_ms(mut self, ms: u32) -> Self {
         self.timeout_ms = ms;
         self
     }
 
+    /// Issue the Zone Management Receive command. Returns the controller's CQE
+    /// result dword.
     pub fn execute(mut self) -> Result<u32> {
-        let buf = self
-            .data
-            .as_deref_mut()
-            .ok_or(Error::InvalidArgument("zns_mgmt_recv requires a buffer"))?;
+        let buf = self.data.as_deref_mut().ok_or(Error::invalid_argument(
+            "zns_mgmt_recv requires a buffer via .buffer()",
+        ))?;
         let fd = ns_fd(self.ns)?;
         let mut result: u32 = 0;
         let mut args = nvme_zns_mgmt_recv_args {
@@ -277,6 +287,7 @@ impl<'a, 'r> ZnsMgmtRecv<'a, 'r> {
 /// write, the controller picks the destination LBA (always the zone's
 /// write pointer) and returns it in the result-dword. Block count is
 /// 1-based; we subtract one for the spec's 0-based NLB encoding.
+#[must_use = "this builder does nothing until `.execute()` is called"]
 pub struct ZnsAppend<'a, 'r> {
     ns: &'a Namespace<'r>,
     zslba: u64,
@@ -315,6 +326,7 @@ impl<'a, 'r> ZnsAppend<'a, 'r> {
         }
     }
 
+    /// Attach a metadata buffer (separate from data).
     pub fn metadata(mut self, md: &'a [u8]) -> Self {
         self.metadata = Some(md);
         self
@@ -338,16 +350,19 @@ impl<'a, 'r> ZnsAppend<'a, 'r> {
         self
     }
 
+    /// Check Guard (PRCHK.GUARD) — enable PI CRC check.
     pub fn check_guard(mut self) -> Self {
         self.control |= ZNS_CTRL_PRINFO_PRCHK_GUARD;
         self
     }
 
+    /// Check Application Tag (PRCHK.APP).
     pub fn check_apptag(mut self) -> Self {
         self.control |= ZNS_CTRL_PRINFO_PRCHK_APP;
         self
     }
 
+    /// Check Reference Tag (PRCHK.REF) — enable PI ref-tag check.
     pub fn check_reftag(mut self) -> Self {
         self.control |= ZNS_CTRL_PRINFO_PRCHK_REF;
         self
@@ -372,6 +387,7 @@ impl<'a, 'r> ZnsAppend<'a, 'r> {
         self
     }
 
+    /// Per-command timeout in milliseconds. `0` uses libnvme's default.
     pub fn timeout_ms(mut self, ms: u32) -> Self {
         self.timeout_ms = ms;
         self
@@ -382,15 +398,20 @@ impl<'a, 'r> ZnsAppend<'a, 'r> {
     /// controller writes the full 64-bit value into `result`).
     pub fn execute(self) -> Result<u64> {
         if self.nlb == 0 || self.nlb > 65_536 {
-            return Err(Error::InvalidArgument("nlb must be 1..=65536"));
+            return Err(Error::invalid_argument(format!(
+                "nlb must be 1..=65536, got {}",
+                self.nlb
+            )));
         }
         let nlb_enc = (self.nlb - 1) as u16;
         let lba_size = self.ns.lba_size();
         let want = u64::from(self.nlb) * u64::from(lba_size);
         if self.data.len() as u64 != want {
-            return Err(Error::InvalidArgument(
-                "buffer length doesn't match nlb * lba_size",
-            ));
+            return Err(Error::invalid_argument(format!(
+                "buffer length {} doesn't match nlb * lba_size = {}",
+                self.data.len(),
+                want
+            )));
         }
         let fd = ns_fd(self.ns)?;
         let mut result: u64 = 0;

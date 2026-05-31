@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::io;
 use std::os::raw::c_int;
 use std::str::Utf8Error;
@@ -30,10 +31,21 @@ pub enum Error {
 
     /// Caller passed an argument that this crate rejected before forwarding
     /// to libnvme (e.g. interior NUL byte in a string, controller-id list
-    /// exceeding the spec maximum, NLB out of range).
+    /// exceeding the spec maximum, NLB out of range, buffer length mismatch).
     ///
-    /// The wrapped `&'static str` describes which input failed and why.
-    InvalidArgument(&'static str),
+    /// The wrapped message describes which input failed and why. It is a
+    /// [`Cow`] so static reasons cost nothing while dynamically-formatted
+    /// ones (with the offending value interpolated) are still possible.
+    /// Deref or `.as_ref()` to get a `&str`.
+    InvalidArgument(Cow<'static, str>),
+}
+
+impl Error {
+    /// Construct an [`Error::InvalidArgument`] from any string-like value.
+    /// Static `&str` stays borrowed (no allocation); a `String` is moved in.
+    pub(crate) fn invalid_argument(msg: impl Into<Cow<'static, str>>) -> Self {
+        Error::InvalidArgument(msg.into())
+    }
 }
 
 impl std::fmt::Display for Error {

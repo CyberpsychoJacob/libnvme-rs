@@ -93,6 +93,7 @@ impl std::fmt::Debug for Host<'_> {
 }
 
 /// Iterator over [`Host`] entries, returned by [`Root::hosts`].
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Hosts<'r> {
     root: nvme_root_t,
     cursor: nvme_host_t,

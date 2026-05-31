@@ -95,6 +95,7 @@ enum PathParent {
 
 /// Iterator over [`Path`] entries reachable through a
 /// [`Controller`](crate::Controller) or [`Namespace`](crate::Namespace).
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Paths<'r> {
     parent: PathParent,
     cursor: nvme_path_t,

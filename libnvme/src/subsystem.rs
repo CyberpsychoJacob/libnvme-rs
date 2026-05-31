@@ -143,6 +143,7 @@ impl std::fmt::Debug for Subsystem<'_> {
 }
 
 /// Iterator over [`Subsystem`] entries, returned by [`crate::Host::subsystems`].
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Subsystems<'r> {
     host: nvme_host_t,
     cursor: nvme_subsystem_t,

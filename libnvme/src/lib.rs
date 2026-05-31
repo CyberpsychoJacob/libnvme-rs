@@ -74,9 +74,9 @@ pub use log::{ErrorLogEntry, FirmwareSlotLog, SmartLog};
 pub use namespace::{Format, Namespace, Namespaces};
 pub use path::{Path, Paths};
 pub use reservations::{
-    PtplChange, ReservationAcquire, ReservationAcquireAction, ReservationRegister,
-    ReservationRegisterAction, ReservationRelease, ReservationReleaseAction, ReservationReport,
-    ReservationType,
+    nvme_resv_status, PtplChange, ReservationAcquire, ReservationAcquireAction,
+    ReservationRegister, ReservationRegisterAction, ReservationRelease, ReservationReleaseAction,
+    ReservationReport, ReservationType,
 };
 #[cfg(has_hostid_generate)]
 pub use root::generate_hostid;

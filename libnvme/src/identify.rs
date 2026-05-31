@@ -14,8 +14,11 @@ use crate::Result;
 /// register and the `vs` field of Identify Controller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NvmeVersion {
+    /// Major version number (MJR).
     pub major: u16,
+    /// Minor version number (MNR).
     pub minor: u8,
+    /// Tertiary version number (TER).
     pub tertiary: u8,
 }
 
@@ -42,8 +45,11 @@ impl std::fmt::Display for NvmeVersion {
 /// descriptor; a value of `0` means the format is unsupported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LbaFormat {
+    /// Metadata size in bytes per LBA (MS).
     pub metadata_size: u16,
+    /// Logical block data size in bytes (`2 ^ ds`); `0` if unsupported.
     pub data_size_bytes: u32,
+    /// Relative Performance (RP) — lower is better (2-bit field).
     pub relative_performance: u8,
 }
 

@@ -5,6 +5,64 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the projec
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) with the
 caveat that pre-1.0 minor-version bumps may include breaking changes.
 
+## [0.9.0] – 2026-05-26
+
+API-stabilization pass ahead of the 1.0 freeze, driven by a full
+public-API consistency audit. This is the last release that intentionally
+breaks compatibility before 1.0; pre-1.0 minor bumps are allowed to break.
+
+### Breaking
+
+- `Error::InvalidArgument` now wraps `Cow<'static, str>` (was `&'static str`)
+  so caller-input errors can carry the offending value. Match arms binding
+  the message still work; `&str` deref is unchanged.
+- All caller-input validation now returns `Error::InvalidArgument` instead
+  of `Error::Os(InvalidInput)` (io.rs nlb/buffer-length checks, fabrics
+  interior-NUL, `read_to_vec`/`error_log` overflow). `Error::NotAvailable`
+  is no longer used for input or overflow errors — it's reserved for
+  "libnvme returned NULL" on handle accessors. The `take_owned_cstr`
+  free-function NULL path now maps to `Error::Os` (preserving `errno`).
+- `Sanitize::execute` returns `Result<u32>` (was `Result<()>`), matching
+  every other command builder.
+- `DsmRange` fields are now private; construct via `DsmRange::new` (1-based
+  block count) + `with_context`. Removes the field-vs-constructor 0/1-based
+  footgun.
+- The buffer-setter on `ReservationReport`, `ZnsMgmtRecv`, and `DirectiveRecv`
+  is renamed `into()` → `buffer()` (avoids colliding with the `Into` trait).
+- Spec-mirroring enums are now `#[non_exhaustive]` (`SecureErase`,
+  `ProtectionInfo`, `FirmwareAction`, `FeatureSelect`, `SanitizeAction`,
+  `SelfTestAction`, the reservation actions, and the ZNS actions/filter), so
+  future NVMe-spec variants can be added without a major bump. Add a `_`
+  arm when matching.
+
+### Added
+
+- `#[must_use]` on every builder type and every lazy iterator type
+  (`Hosts`/`Subsystems`/`Controllers`/`Namespaces`/`Paths`), so dropping a
+  builder or iterator without consuming it now warns.
+- `nvme_resv_status` is re-exported from the `libnvme` crate so callers of
+  `ReservationReport` can name and decode the report without a direct
+  `libnvme-sys` dependency.
+- Marshalling unit tests (no live device): `encode_nlb` 1-based conversion,
+  `IoControl`/`DsmAttr` bit layouts, `DsmRange`/`CopyRange` encoding,
+  buffer-length validation, and every admin-enum discriminant. 37 unit
+  tests total (was 21).
+- Documentation filled in for previously-undocumented public items
+  (`PassthruArgs`/`LockdownArgs`/`GetLbaStatusArgs` fields, builder
+  `execute()`/setter methods, `NvmeVersion`/`LbaFormat` fields).
+
+### Changed
+
+- `bindgen` build-dependency bumped 0.71 → 0.72 (regenerates `libnvme-sys`
+  FFI bindings; the reason this release is a breaking minor).
+- CI gained `cargo-deny`, `cargo-semver-checks`, `cargo-machete`, a nightly
+  heads-up build, an MSRV job that reads `rust-version` from `Cargo.toml`,
+  concurrency cancellation, and per-job timeouts. `deny.toml`
+  `multiple-versions` is now `deny` (the tree has no duplicates).
+- A headless QEMU integration workflow (`tests/qemu/ci.sh` + `qemu.yml`)
+  boots the NVMe fixture on a hosted runner and runs the suite + `io_smoke`
+  over SSH (manual + weekly; not PR-blocking yet).
+
 ## [0.8.0] – 2026-05-21
 
 ### Added
@@ -290,6 +348,7 @@ Three command-set groups that close the gap between the v0.7 surface and
 - CI (Ubuntu 24.04, libnvme 1.8) running `cargo build`, `cargo test`,
   `cargo clippy`, `cargo fmt --check`
 
+[0.9.0]: https://github.com/Cyberpsych0s1s/libnvme-rs/releases/tag/v0.9.0
 [0.8.0]: https://github.com/Cyberpsych0s1s/libnvme-rs/releases/tag/v0.8.0
 [0.7.0]: https://github.com/Cyberpsych0s1s/libnvme-rs/releases/tag/v0.7.0
 [0.6.2]: https://github.com/Cyberpsych0s1s/libnvme-rs/releases/tag/v0.6.2

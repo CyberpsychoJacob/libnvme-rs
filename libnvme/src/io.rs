@@ -129,7 +129,7 @@ impl IoOpts {
 /// Number of blocks to encode as the NVMe 0's-based `NLB` field.
 ///
 /// Caller passes a 1-based count (`nlb = 1` means one LBA). Spec maxes at
-/// 65_536. Returns `Err(InvalidInput)` if `nlb == 0` or `nlb > 65_536`.
+/// 65_536. Returns [`Error::InvalidArgument`] if `nlb == 0` or `nlb > 65_536`.
 fn encode_nlb(nlb: u32) -> Result<u16> {
     if nlb == 0 || nlb > 65_536 {
         return Err(invalid(format!("nlb must be 1..=65536, got {nlb}")));
@@ -137,11 +137,11 @@ fn encode_nlb(nlb: u32) -> Result<u16> {
     Ok((nlb - 1) as u16)
 }
 
-fn invalid(msg: impl Into<String>) -> Error {
-    Error::Os(std::io::Error::new(
-        std::io::ErrorKind::InvalidInput,
-        msg.into(),
-    ))
+/// Build an [`Error::InvalidArgument`] from a (possibly formatted) message.
+/// All caller-input validation in this module routes through here so the
+/// variant is consistent with the rest of the crate.
+fn invalid(msg: impl Into<std::borrow::Cow<'static, str>>) -> Error {
+    Error::invalid_argument(msg)
 }
 
 fn ns_fd(ns: &Namespace<'_>) -> Result<std::os::raw::c_int> {
@@ -327,6 +327,7 @@ macro_rules! io_data_setters {
 ///
 /// Fills `data` from device into the supplied buffer; `data.len()` must equal
 /// `nlb * lba_size`.
+#[must_use = "this builder does nothing until `.execute()` is called"]
 pub struct Read<'a, 'r> {
     ns: &'a Namespace<'r>,
     slba: u64,
@@ -386,6 +387,7 @@ impl<'a, 'r> Read<'a, 'r> {
 ///
 /// Sends bytes from `data` to the device; `data.len()` must equal
 /// `nlb * lba_size`.
+#[must_use = "this builder does nothing until `.execute()` is called"]
 pub struct Write<'a, 'r> {
     ns: &'a Namespace<'r>,
     slba: u64,
@@ -415,6 +417,7 @@ impl<'a, 'r> Write<'a, 'r> {
 
     io_data_setters!();
 
+    /// Issue the Write command. Returns the controller's CQE result dword.
     pub fn execute(self) -> Result<u32> {
         check_buf_len(self.data.len(), self.nlb, self.ns.lba_size())?;
         let nlb_enc = encode_nlb(self.nlb)?;
@@ -447,6 +450,7 @@ impl<'a, 'r> Write<'a, 'r> {
 /// Compares stored LBAs against the supplied host buffer. The controller
 /// returns NVMe status `0x85` (Compare Failure) via [`Error::Nvme`] if any
 /// byte differs.
+#[must_use = "this builder does nothing until `.execute()` is called"]
 pub struct Compare<'a, 'r> {
     ns: &'a Namespace<'r>,
     slba: u64,
@@ -475,6 +479,7 @@ impl<'a, 'r> Compare<'a, 'r> {
 
     io_data_setters!();
 
+    /// Issue the Compare command. Returns the controller's CQE result dword.
     pub fn execute(self) -> Result<u32> {
         check_buf_len(self.data.len(), self.nlb, self.ns.lba_size())?;
         let nlb_enc = encode_nlb(self.nlb)?;
@@ -505,51 +510,62 @@ impl<'a, 'r> Compare<'a, 'r> {
 
 macro_rules! io_nodata_setters {
     () => {
+        /// Force Unit Access — bypass volatile write cache for this command.
         pub fn fua(mut self) -> Self {
             self.opts.control |= IoControl::FUA;
             self
         }
 
+        /// Limited Retry — controller should bound retry effort on error.
         pub fn limited_retry(mut self) -> Self {
             self.opts.control |= IoControl::LR;
             self
         }
 
+        /// Set Protection Information Action (PRACT).
         pub fn protection_action(mut self) -> Self {
             self.opts.control |= IoControl::PRINFO_PRACT;
             self
         }
 
+        /// Check Reference Tag (PRCHK.REF) — enable PI ref-tag check.
         pub fn check_reftag(mut self) -> Self {
             self.opts.control |= IoControl::PRINFO_PRCHK_REF;
             self
         }
 
+        /// Check Application Tag (PRCHK.APP).
         pub fn check_apptag(mut self) -> Self {
             self.opts.control |= IoControl::PRINFO_PRCHK_APP;
             self
         }
 
+        /// Check Guard (PRCHK.GUARD) — enable PI CRC check.
         pub fn check_guard(mut self) -> Self {
             self.opts.control |= IoControl::PRINFO_PRCHK_GUARD;
             self
         }
 
+        /// Expected initial Logical Block Reference Tag (ILBRT, 32-bit).
         pub fn ref_tag(mut self, tag: u32) -> Self {
             self.opts.reftag = tag;
             self
         }
 
+        /// Expected Logical Block Application Tag.
         pub fn app_tag(mut self, tag: u16) -> Self {
             self.opts.apptag = tag;
             self
         }
 
+        /// Logical Block Application Tag Mask.
         pub fn app_mask(mut self, mask: u16) -> Self {
             self.opts.appmask = mask;
             self
         }
 
+        /// Per-command timeout in milliseconds. `0` lets libnvme use the
+        /// default.
         pub fn timeout_ms(mut self, ms: u32) -> Self {
             self.opts.timeout_ms = ms;
             self
@@ -558,6 +574,7 @@ macro_rules! io_nodata_setters {
 }
 
 /// Builder returned by [`Namespace::verify`].
+#[must_use = "this builder does nothing until `.execute()` is called"]
 pub struct Verify<'a, 'r> {
     ns: &'a Namespace<'r>,
     slba: u64,
@@ -577,6 +594,7 @@ impl<'a, 'r> Verify<'a, 'r> {
 
     io_nodata_setters!();
 
+    /// Issue the Verify command. Returns the controller's CQE result dword.
     pub fn execute(self) -> Result<u32> {
         let nlb_enc = encode_nlb(self.nlb)?;
         let fd = ns_fd(self.ns)?;
@@ -600,6 +618,7 @@ impl<'a, 'r> Verify<'a, 'r> {
 }
 
 /// Builder returned by [`Namespace::write_zeroes`].
+#[must_use = "this builder does nothing until `.execute()` is called"]
 pub struct WriteZeroes<'a, 'r> {
     ns: &'a Namespace<'r>,
     slba: u64,
@@ -631,6 +650,8 @@ impl<'a, 'r> WriteZeroes<'a, 'r> {
         self
     }
 
+    /// Issue the Write Zeroes command. Returns the controller's CQE result
+    /// dword.
     pub fn execute(self) -> Result<u32> {
         let nlb_enc = encode_nlb(self.nlb)?;
         let fd = ns_fd(self.ns)?;
@@ -663,6 +684,7 @@ impl<'a, 'r> WriteZeroes<'a, 'r> {
 /// [`Namespace::write_zeroes`]). Use only for fault-injection testing
 /// or to deliberately invalidate data; never on production drives
 /// without explicit intent.
+#[must_use = "this builder does nothing until `.execute()` is called"]
 pub struct WriteUncorrectable<'a, 'r> {
     ns: &'a Namespace<'r>,
     slba: u64,
@@ -686,6 +708,8 @@ impl<'a, 'r> WriteUncorrectable<'a, 'r> {
         self
     }
 
+    /// Issue the Write Uncorrectable command. Returns the controller's CQE
+    /// result dword.
     pub fn execute(self) -> Result<u32> {
         let nlb_enc = encode_nlb(self.nlb)?;
         let fd = ns_fd(self.ns)?;
@@ -749,32 +773,42 @@ impl std::ops::BitOrAssign for DsmAttr {
 }
 
 /// One DSM range entry. NVMe spec: each entry covers up to 4 GiB of LBAs.
+///
+/// Fields are private — construct via [`DsmRange::new`] (which takes a
+/// **1-based** block count, matching the rest of this module's I/O API)
+/// and refine with [`DsmRange::with_context`]. This makes it impossible
+/// to confuse the public 1-based count with the spec's 0-based wire
+/// encoding (which `execute` applies internally).
 #[derive(Debug, Clone, Copy)]
 pub struct DsmRange {
-    /// Context attributes (frequency / latency / access-pattern hints —
-    /// see NVMe spec figure on DSM context attributes).
-    pub context: u32,
-    /// Length in logical blocks. **0-based** per spec: 0 = 1 LBA, 1 = 2,
-    /// etc. We keep the spec encoding here because it's a 32-bit field
-    /// and 1-basing it would silently truncate.
-    pub length: u32,
+    /// Context attributes (DSM context-attribute hints).
+    context: u32,
+    /// Length in logical blocks, stored 0-based per the spec wire format
+    /// (`new` subtracts 1 from the caller's 1-based count).
+    length: u32,
     /// Starting LBA.
-    pub slba: u64,
+    slba: u64,
 }
 
 impl DsmRange {
-    /// Construct a range with no context hints. `length` is 1-based for
-    /// convenience (1 = a single LBA); decremented to spec form on send.
-    pub fn new(slba: u64, length: u32) -> Self {
-        let length = length.saturating_sub(1);
+    /// Construct a range starting at `slba` covering `nlb` logical blocks.
+    ///
+    /// `nlb` is **1-based** (1 = a single LBA), consistent with the rest of
+    /// this module; it is decremented to the spec's 0-based encoding when
+    /// the command is submitted. `nlb` of `0` is treated as `1`.
+    #[must_use]
+    pub fn new(slba: u64, nlb: u32) -> Self {
         DsmRange {
             context: 0,
-            length,
+            length: nlb.saturating_sub(1),
             slba,
         }
     }
 
-    /// Attach context-attribute bits.
+    /// Attach DSM context-attribute bits (frequency / latency /
+    /// access-pattern hints — see the NVMe spec figure on DSM context
+    /// attributes).
+    #[must_use]
     pub fn with_context(mut self, context: u32) -> Self {
         self.context = context;
         self
@@ -782,6 +816,7 @@ impl DsmRange {
 }
 
 /// Builder returned by [`Namespace::dsm`].
+#[must_use = "this builder does nothing until `.execute()` is called"]
 pub struct Dsm<'a, 'r> {
     ns: &'a Namespace<'r>,
     attrs: DsmAttr,
@@ -806,11 +841,14 @@ impl<'a, 'r> Dsm<'a, 'r> {
         self
     }
 
+    /// Per-command timeout in milliseconds. `0` lets libnvme use the default.
     pub fn timeout_ms(mut self, ms: u32) -> Self {
         self.timeout_ms = ms;
         self
     }
 
+    /// Issue the Dataset Management command. Returns the controller's CQE
+    /// result dword.
     pub fn execute(self) -> Result<u32> {
         let ranges = self.ranges.unwrap_or(&[]);
         if ranges.is_empty() {
@@ -876,6 +914,8 @@ pub struct CopyRange {
 }
 
 impl CopyRange {
+    /// Construct a source range starting at `slba` covering `nlb` logical
+    /// blocks (1-based).
     pub fn new(slba: u64, nlb: u16) -> Self {
         CopyRange {
             slba,
@@ -884,11 +924,13 @@ impl CopyRange {
         }
     }
 
+    /// Expected initial logical block reference tag (EILBRT).
     pub fn ref_tag(mut self, eilbrt: u32) -> Self {
         self.eilbrt = eilbrt;
         self
     }
 
+    /// Expected logical block application tag (ELBAT) + mask (ELBATM).
     pub fn app_tag(mut self, elbat: u16, mask: u16) -> Self {
         self.elbat = elbat;
         self.elbatm = mask;
@@ -897,6 +939,7 @@ impl CopyRange {
 }
 
 /// Builder returned by [`Namespace::copy`].
+#[must_use = "this builder does nothing until `.execute()` is called"]
 pub struct Copy<'a, 'r> {
     ns: &'a Namespace<'r>,
     sdlba: u64,
@@ -994,11 +1037,13 @@ impl<'a, 'r> Copy<'a, 'r> {
         self
     }
 
+    /// Per-command timeout in milliseconds. `0` lets libnvme use the default.
     pub fn timeout_ms(mut self, ms: u32) -> Self {
         self.timeout_ms = ms;
         self
     }
 
+    /// Issue the Copy command. Returns the controller's CQE result dword.
     pub fn execute(self) -> Result<u32> {
         if self.ranges.is_empty() {
             return Err(invalid("Copy requires at least one source range"));
@@ -1099,4 +1144,138 @@ pub(crate) fn flush(ns: &Namespace<'_>) -> Result<()> {
         )
     };
     check_ret(ret)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -- encode_nlb: the 1-based -> 0-based NLB conversion --------------
+
+    #[test]
+    fn encode_nlb_is_one_based() {
+        // 1 LBA encodes to the spec's 0-based 0; 2 -> 1; etc.
+        assert_eq!(encode_nlb(1).unwrap(), 0);
+        assert_eq!(encode_nlb(2).unwrap(), 1);
+        assert_eq!(encode_nlb(65_536).unwrap(), 65_535);
+    }
+
+    #[test]
+    fn encode_nlb_rejects_zero_and_overflow() {
+        assert!(matches!(encode_nlb(0), Err(Error::InvalidArgument(_))));
+        assert!(matches!(encode_nlb(65_537), Err(Error::InvalidArgument(_))));
+        assert!(matches!(
+            encode_nlb(u32::MAX),
+            Err(Error::InvalidArgument(_))
+        ));
+    }
+
+    // -- IoControl: CDW12 control-flag bit layout (NVMe spec fixed) -----
+
+    #[test]
+    fn io_control_bits_match_spec() {
+        assert_eq!(IoControl::DTYPE_STREAMS, 1 << 4);
+        assert_eq!(IoControl::NSZ, 1 << 7);
+        assert_eq!(IoControl::STC, 1 << 8);
+        assert_eq!(IoControl::DEAC, 1 << 9);
+        assert_eq!(IoControl::PRINFO_PRCHK_REF, 1 << 10);
+        assert_eq!(IoControl::PRINFO_PRCHK_APP, 1 << 11);
+        assert_eq!(IoControl::PRINFO_PRCHK_GUARD, 1 << 12);
+        assert_eq!(IoControl::PRINFO_PRACT, 1 << 13);
+        assert_eq!(IoControl::FUA, 1 << 14);
+        assert_eq!(IoControl::LR, 1 << 15);
+    }
+
+    // -- DsmAttr: CDW11 attribute bits + combination -------------------
+
+    #[test]
+    fn dsm_attr_bits_and_combination() {
+        assert_eq!(DsmAttr::INTEGRAL_READ.bits(), 1 << 0);
+        assert_eq!(DsmAttr::INTEGRAL_WRITE.bits(), 1 << 1);
+        assert_eq!(DsmAttr::DEALLOCATE.bits(), 1 << 2);
+
+        let combined = DsmAttr::DEALLOCATE | DsmAttr::INTEGRAL_WRITE;
+        assert_eq!(combined.bits(), 0b110);
+
+        let mut acc = DsmAttr::INTEGRAL_READ;
+        acc |= DsmAttr::DEALLOCATE;
+        assert_eq!(acc.bits(), 0b101);
+
+        assert_eq!(DsmAttr::from_bits(0b111).bits(), 0b111);
+    }
+
+    // -- DsmRange: the 1-based length stored as spec 0-based -----------
+
+    #[test]
+    fn dsm_range_length_is_one_based() {
+        // new(slba, nlb=1) stores spec 0-based length 0.
+        let r = DsmRange::new(0x1000, 1);
+        assert_eq!(r.slba, 0x1000);
+        assert_eq!(r.length, 0);
+        assert_eq!(r.context, 0);
+
+        // nlb=8 -> stored 7.
+        assert_eq!(DsmRange::new(0, 8).length, 7);
+
+        // nlb=0 is clamped (saturating_sub) to 0, not underflowed.
+        assert_eq!(DsmRange::new(0, 0).length, 0);
+
+        // with_context sets the attribute bits.
+        let r = DsmRange::new(0, 4).with_context(0xABCD);
+        assert_eq!(r.context, 0xABCD);
+        assert_eq!(r.length, 3);
+    }
+
+    #[test]
+    fn dsm_range_wire_encoding_is_little_endian() {
+        // Mirror what Dsm::execute builds, to lock the LE conversion.
+        let r = DsmRange::new(0x1122_3344_5566_7788, 0x10).with_context(0xDEAD_BEEF);
+        let raw = nvme_dsm_range {
+            cattr: r.context.to_le(),
+            nlb: r.length.to_le(),
+            slba: r.slba.to_le(),
+        };
+        assert_eq!(u32::from_le(raw.cattr), 0xDEAD_BEEF);
+        assert_eq!(u32::from_le(raw.nlb), 0x0F); // 0x10 - 1, 1-based
+        assert_eq!(u64::from_le(raw.slba), 0x1122_3344_5566_7788);
+    }
+
+    // -- CopyRange: 1-based nlb, builder setters -----------------------
+
+    #[test]
+    fn copy_range_builder() {
+        let r = CopyRange::new(0x2000, 4)
+            .ref_tag(0x55)
+            .app_tag(0x1234, 0xFF00);
+        assert_eq!(r.slba, 0x2000);
+        assert_eq!(r.nlb, 4); // stored 1-based; decremented at execute time
+        assert_eq!(r.eilbrt, 0x55);
+        assert_eq!(r.elbat, 0x1234);
+        assert_eq!(r.elbatm, 0xFF00);
+    }
+
+    #[test]
+    fn copy_range_wire_encoding_decrements_nlb() {
+        // Mirror the nlb_enc computation in Copy::execute.
+        let r = CopyRange::new(0, 16);
+        let nlb_enc = r.nlb.saturating_sub(1);
+        assert_eq!(nlb_enc, 15);
+    }
+
+    // -- check_buf_len: buffer-size validation -------------------------
+
+    #[test]
+    fn check_buf_len_matches_nlb_times_lba_size() {
+        // 8 blocks * 512 = 4096 ok.
+        assert!(check_buf_len(4096, 8, 512).is_ok());
+        // wrong size rejected.
+        assert!(matches!(
+            check_buf_len(4095, 8, 512),
+            Err(Error::InvalidArgument(_))
+        ));
+        assert!(matches!(
+            check_buf_len(8192, 8, 512),
+            Err(Error::InvalidArgument(_))
+        ));
+    }
 }

@@ -11,7 +11,11 @@ use libnvme_sys::{
 };
 
 /// How user data should be erased during a Format NVM operation.
+///
+/// `#[non_exhaustive]`: the NVMe `SES` field has reserved encodings the
+/// spec may assign later, so match with a `_` arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum SecureErase {
     /// No secure erase — only metadata is overwritten.
@@ -31,7 +35,11 @@ impl SecureErase {
 }
 
 /// End-to-end Data Protection type to apply when formatting.
+///
+/// `#[non_exhaustive]`: the NVMe `PI` field may gain types; match with a
+/// `_` arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum ProtectionInfo {
     /// PI disabled (the common case for consumer SSDs).
@@ -86,7 +94,11 @@ impl MetadataSettings {
 }
 
 /// What the firmware-commit admin command should do with the slot it targets.
+///
+/// `#[non_exhaustive]`: the NVMe `CA` field has reserved encodings; match
+/// with a `_` arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum FirmwareAction {
     /// Replace the image in the slot. The image takes effect on the next
@@ -112,7 +124,11 @@ impl FirmwareAction {
 }
 
 /// Which "view" of a feature value the Get Features command should return.
+///
+/// `#[non_exhaustive]`: the NVMe `SEL` field has reserved encodings; match
+/// with a `_` arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum FeatureSelect {
     /// The currently-active value for the feature.
@@ -135,7 +151,11 @@ impl FeatureSelect {
 
 /// Sanitize action — what the Sanitize admin command should do to the
 /// drive's user data area.
+///
+/// `#[non_exhaustive]`: the NVMe `SANACT` field has reserved encodings;
+/// match with a `_` arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum SanitizeAction {
     /// Exit a Sanitize Failure state (after a previous sanitize errored).
@@ -158,7 +178,11 @@ impl SanitizeAction {
 }
 
 /// Self-test action for the Device Self-Test admin command.
+///
+/// `#[non_exhaustive]`: the NVMe `STC` field has reserved encodings; match
+/// with a `_` arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum SelfTestAction {
     /// Short self-test (typically completes in minutes).
@@ -176,5 +200,74 @@ pub enum SelfTestAction {
 impl SelfTestAction {
     pub(crate) fn as_raw(self) -> nvme_dst_stc {
         self as u8 as nvme_dst_stc
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Lock the spec discriminant values: a typo'd variant value would
+    // silently send the wrong command field. as_raw() is `self as u8`,
+    // so these double as discriminant assertions.
+
+    #[test]
+    fn secure_erase_discriminants() {
+        assert_eq!(SecureErase::None.as_raw(), 0);
+        assert_eq!(SecureErase::UserData.as_raw(), 1);
+        assert_eq!(SecureErase::Cryptographic.as_raw(), 2);
+    }
+
+    #[test]
+    fn protection_info_discriminants() {
+        assert_eq!(ProtectionInfo::Disabled.as_raw(), 0);
+        assert_eq!(ProtectionInfo::Type1.as_raw(), 1);
+        assert_eq!(ProtectionInfo::Type2.as_raw(), 2);
+        assert_eq!(ProtectionInfo::Type3.as_raw(), 3);
+    }
+
+    #[test]
+    fn firmware_action_discriminants() {
+        assert_eq!(FirmwareAction::Replace.as_raw(), 0);
+        assert_eq!(FirmwareAction::ReplaceAndActivate.as_raw(), 1);
+        assert_eq!(FirmwareAction::SetActive.as_raw(), 2);
+        assert_eq!(FirmwareAction::ReplaceAndActivateImmediate.as_raw(), 3);
+        assert_eq!(FirmwareAction::ReplaceBootPartition.as_raw(), 6);
+        assert_eq!(FirmwareAction::ActivateBootPartition.as_raw(), 7);
+    }
+
+    #[test]
+    fn feature_select_discriminants() {
+        assert_eq!(FeatureSelect::Current.as_raw(), 0);
+        assert_eq!(FeatureSelect::Default.as_raw(), 1);
+        assert_eq!(FeatureSelect::Saved.as_raw(), 2);
+        assert_eq!(FeatureSelect::Supported.as_raw(), 3);
+    }
+
+    #[test]
+    fn sanitize_action_discriminants() {
+        assert_eq!(SanitizeAction::ExitFailure.as_raw(), 1);
+        assert_eq!(SanitizeAction::BlockErase.as_raw(), 2);
+        assert_eq!(SanitizeAction::Overwrite.as_raw(), 3);
+        assert_eq!(SanitizeAction::CryptoErase.as_raw(), 4);
+        assert_eq!(SanitizeAction::ExitMediaVerification.as_raw(), 5);
+    }
+
+    #[test]
+    fn self_test_action_discriminants() {
+        assert_eq!(SelfTestAction::Short.as_raw(), 1);
+        assert_eq!(SelfTestAction::Extended.as_raw(), 2);
+        assert_eq!(SelfTestAction::HostInitiated.as_raw(), 3);
+        assert_eq!(SelfTestAction::VendorSpecific.as_raw(), 14);
+        assert_eq!(SelfTestAction::Abort.as_raw(), 15);
+    }
+
+    #[test]
+    fn defaults_are_conservative() {
+        assert_eq!(SecureErase::default(), SecureErase::None);
+        assert_eq!(ProtectionInfo::default(), ProtectionInfo::Disabled);
+        assert_eq!(ProtectionLocation::default(), ProtectionLocation::Last);
+        assert_eq!(MetadataSettings::default(), MetadataSettings::Separate);
+        assert_eq!(FeatureSelect::default(), FeatureSelect::Current);
     }
 }
