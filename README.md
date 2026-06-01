@@ -9,9 +9,11 @@ Safe, idiomatic Rust bindings for the Linux [`libnvme`](https://github.com/linux
 
 > [!WARNING]
 > **Alpha — API will change.** `0.x.y` releases break compatibility on
-> minor-version bumps. Pin to an exact patch version (`libnvme = "=0.8.0"`)
-> if you depend on this and don't want surprises. Linux-only; `libnvme`
-> doesn't exist on Windows or macOS.
+> minor-version bumps. Pin to an exact patch version (`libnvme = "=0.9.0"`)
+> if you depend on this and don't want surprises. `0.9.0` is the final
+> intentionally-breaking release before the planned 1.0 API freeze — see
+> the [CHANGELOG](CHANGELOG.md) for the 0.8 → 0.9 migration notes.
+> Linux-only; `libnvme` doesn't exist on Windows or macOS.
 >
 > Destructive admin commands (`Format NVM`, `Sanitize`,
 > `delete_namespace`, `fw_commit`, `Lockdown`, and the I/O commands
@@ -51,7 +53,7 @@ cargo run --example list_nvme -p libnvme
 
 ## Verification status
 
-The crate is young. Coverage shape as of `v0.8.0`:
+The crate is young. Coverage shape as of `v0.9.0`:
 
 | Surface | Verification |
 | --- | --- |
@@ -59,9 +61,15 @@ The crate is young. Coverage shape as of `v0.8.0`:
 | Identify / SMART / Error log / FW slot | Examples (`id_ctrl`, `smart_log`, `fw_info`), QEMU |
 | Get / Set Features (69 methods) | Compiles + runs against libnvme 1.8 in CI; no per-feature smoke test yet |
 | Format NVM | `examples/format_smoke.rs` against QEMU only (model-name safety latch) |
-| NVM I/O (`read`/`write`/`compare`/`verify`/`write_zeroes`/`dsm`/`flush`) | `examples/io_smoke.rs` — full round-trip against QEMU NVMe |
+| NVM I/O (`read`/`write`/`compare`/`verify`/`write_zeroes`/`dsm`/`flush`) | `examples/io_smoke.rs` — full round-trip against QEMU NVMe; encoders unit-tested |
+| Block-count / flag / arg encoders | Unit-tested with no device (`encode_nlb`, control-flag bits, DSM/Copy ranges, admin-enum discriminants) |
 | Sanitize / Lockdown / Self-Test / Security S/R / FW download+commit / NS mgmt | Compiles; not yet exercised by automated tests |
+| Reservations / Directives / ZNS | Compiles; not yet exercised by automated tests (need a multi-host / ZNS target) |
 | Fabrics (Connect / Discovery / Disconnect / auth) | Compiles; not yet exercised by automated tests (would need a target) |
+
+Across all of the above, the build is exercised against **libnvme 1.6,
+1.11.1, and 1.16.1** (compiled from source in CI) to validate the
+version-gating symbol probes, in addition to the 1.8 baseline.
 
 Anything in the "compiles" tier should be considered alpha. Bug reports
 welcome, particularly from anyone running these against real hardware
@@ -171,11 +179,11 @@ or a fabrics target.
 
 ## Roadmap
 
-| Version | Scope |
-| --- | --- |
-| 0.9 | API audit + stabilization pass + automated QEMU CI + per-feature smoke tests. No new API surface. |
-| 1.0 | Ship the stabilized surface. **Coverage at this point: 122/122 of libnvme's extern functions, either typed or reachable via `admin_passthru` / `io_passthru`.** |
-| 1.x | NVMe-MI as a sibling `libnvme-mi` crate; Key-Value command set once libnvme exposes it upstream. |
+| Version | Status | Scope |
+| --- | --- | --- |
+| 0.9 | shipped | API consistency audit + stabilization pass (last breaking release): `#[non_exhaustive]` spec enums, `#[must_use]` builders/iterators, unified `Error::InvalidArgument`, no-device marshalling tests, hardened CI (`cargo-deny` / `semver-checks` / version matrix). |
+| 1.0 | next | Freeze the API. Polish: `#![warn(missing_docs)]` clean, examples for every major surface, aarch64 + MIRI (pure-Rust modules) + coverage in CI. **Coverage: 122/122 of libnvme's extern functions, either typed or reachable via `admin_passthru` / `io_passthru`.** |
+| 1.x | later | NVMe-MI as a sibling `libnvme-mi` crate; Key-Value command set once libnvme exposes it upstream. |
 
 ## Provider-Specific Quirks
 
