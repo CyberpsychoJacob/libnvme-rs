@@ -1,0 +1,97 @@
+name: libnvme version matrix
+
+# Builds the crate against several libnvme versions compiled from source,
+# to validate the version-gating symbol probes in build.rs against real
+# old/new libnvme headers — not just the 1.8 that Ubuntu 24.04 ships.
+#
+#   v1.6     — our declared floor (`atleast_version("1.6")`). Exercises the
+#              "symbol absent" path: the cfg probes must correctly NOT gate
+#              in the newer fabrics/auth/feature helpers.
+#   v1.11.1  — mid-range; a subset of the newer symbols present.
+#   v1.16.1  — matches our vendored headers; all probed symbols present.
+#
+# Not on every PR (from-source libnvme builds are slow) — runs on main
+# pushes, weekly, manual dispatch, and PRs that touch the build plumbing.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'libnvme-sys/build.rs'
+      - 'libnvme-sys/wrapper.h'
+      - 'libnvme/build.rs'
+      - '**/Cargo.toml'
+      - '.github/workflows/libnvme-matrix.yml'
+  schedule:
+    # Weekly, Mondays 05:00 UTC (an hour after the QEMU job).
+    - cron: '0 5 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: libnvme-matrix-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  matrix:
+    name: libnvme ${{ matrix.libnvme }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        libnvme: [v1.6, v1.11.1, v1.16.1]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install build dependencies
+        # NOT installing libnvme-dev — we build the matrix version from
+        # source below. The -dev packages here are libnvme's own build
+        # deps, installed so meson auto-enables the same feature set a
+        # distro build would (json-c / openssl / dbus / keyutils), which
+        # ensures the version-gated symbols our wrapper links against are
+        # actually present in the compiled .so.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential meson ninja-build pkg-config \
+            libjson-c-dev libssl-dev libdbus-1-dev libkeyutils-dev \
+            clang libclang-dev git ca-certificates
+
+      - name: Build & install libnvme ${{ matrix.libnvme }} from source
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 --branch "${{ matrix.libnvme }}" \
+            https://github.com/linux-nvme/libnvme.git /tmp/libnvme
+          cd /tmp/libnvme
+          # Install into the standard system paths so pkg-config and the
+          # linker find it with no extra env. Disable docs + python
+          # bindings (irrelevant here, and they pull swig/sphinx).
+          meson setup .build \
+            --prefix=/usr \
+            --libdir=/usr/lib/x86_64-linux-gnu \
+            -Ddocs=false \
+            -Dpython=disabled
+          meson compile -C .build
+          sudo meson install -C .build
+          sudo ldconfig
+
+      - name: Verify installed libnvme version
+        run: pkg-config --modversion libnvme
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: libnvme-${{ matrix.libnvme }}
+
+      - name: Build (exercises the build.rs symbol probes)
+        run: cargo build --workspace --all-targets
+
+      - name: Test
+        run: cargo test --workspace

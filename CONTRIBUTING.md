@@ -28,11 +28,19 @@ CI runs on every PR:
 | `machete` | `cargo machete` — unused-dependency detection |
 | `publish-dry-run` | On `v*` tags only — verifies the workspace packages cleanly |
 
-Plus a separate **QEMU integration workflow** (`.github/workflows/qemu.yml`)
-that boots the QEMU NVMe fixture and runs `cargo test` + `io_smoke` inside
-the guest. Currently triggers on manual dispatch and weekly cron only —
-not PR-blocking yet. Promote to PR-blocking after the harness has been
-stable for a few release cycles.
+Plus two separate workflows that don't gate every PR:
+
+- **QEMU integration** (`.github/workflows/qemu.yml`) — boots the QEMU NVMe
+  fixture and runs `cargo test` + `io_smoke` inside the guest. Triggers on
+  manual dispatch and weekly cron. Promote to PR-blocking after the harness
+  has been stable for a few release cycles.
+- **libnvme version matrix** (`.github/workflows/libnvme-matrix.yml`) —
+  builds + tests against libnvme `v1.6` / `v1.11.1` / `v1.16.1` compiled
+  from source, validating the `build.rs` symbol probes against real
+  old/new headers. Triggers on main pushes, weekly cron, manual dispatch,
+  and PRs that touch the build plumbing (`build.rs`, `wrapper.h`,
+  `Cargo.toml`). If you add a new version-gated symbol, this is what
+  proves the probe gates it correctly on older libnvme.
 
 Make sure the non-QEMU jobs all pass locally before requesting review:
 
