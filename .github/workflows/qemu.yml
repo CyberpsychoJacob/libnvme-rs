@@ -31,7 +31,7 @@ jobs:
     # doesn't camp on the runner.
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install QEMU + cloud-image-utils
         run: |
