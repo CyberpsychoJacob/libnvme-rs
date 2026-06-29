@@ -48,7 +48,7 @@ jobs:
       # The root overlay + nvme.img get rebuilt every run (we want a
       # fresh guest fs / drive every time).
       - name: Cache Ubuntu base image
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: tests/qemu/.cache/ubuntu-24.04-base.qcow2
           key: ubuntu-24.04-cloud-image-v1
